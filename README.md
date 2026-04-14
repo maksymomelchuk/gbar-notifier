@@ -4,11 +4,13 @@ Telegram notifications when bookings are created, changed, or cancelled in the G
 
 ## How it works
 
-1. Polls `pro.gbar.com.ua/issue/master` every 5 minutes (configurable)
-2. Parses the HTML to extract booking data (ID, date, time, client)
-3. Compares with previous state to detect new/changed/cancelled bookings
-4. Sends Telegram messages with the changes
-5. Sends a daily summary at 7:00 AM Kyiv time
+1. Logs into `pro.gbar.com.ua` automatically via Puppeteer (or uses a manual cookie)
+2. Polls the bookings page every 15 minutes (configurable)
+3. Parses the HTML to extract booking data (date, time, client)
+4. Compares with previous state to detect new/changed/cancelled bookings
+5. Sends Telegram messages in Ukrainian with the changes
+6. Sends a daily summary at 7:00 AM Kyiv time
+7. Auto-refreshes session cookies when they expire
 
 ## Setup
 
@@ -18,63 +20,81 @@ Telegram notifications when bookings are created, changed, or cancelled in the G
 2. Send `/newbot`, follow instructions
 3. Copy the **bot token** (looks like `123456789:ABCdefGhIjKlmNoPqRsTuVwXyZ`)
 4. Open the bot you just created and send it any message (e.g. "hello")
-5. Get your **chat ID**: visit `https://api.telegram.org/bot<YOUR_TOKEN>/getUpdates` in browser, find `"chat":{"id":XXXXXX}`
+5. Get your **chat ID**: message **@userinfobot** — it replies with your ID
 
-### 2. Get GBar Session Cookie
-
-1. Open Brave/Chrome, go to https://pro.gbar.com.ua/issue/master
-2. Log in if needed
-3. Press **F12** (DevTools) → **Network** tab
-4. Reload the page
-5. Click the first request → **Headers** → **Request Headers** → **Cookie**
-6. Copy the entire cookie value
-
-Or run `node get-cookies.js` for detailed instructions.
-
-### 3. Configure
+### 2. Configure
 
 ```bash
 cp .env.example .env
-# Edit .env and fill in:
-# - GBAR_COOKIE_STRING
-# - TELEGRAM_BOT_TOKEN
-# - TELEGRAM_CHAT_ID
 ```
 
-### 4. Install & Test
+Edit `.env` and fill in:
+
+```
+GBAR_LOGIN=your_gbar_login
+GBAR_PASSWORD=your_gbar_password
+TELEGRAM_BOT_TOKEN=your_bot_token
+TELEGRAM_CHAT_ID=your_chat_id
+```
+
+That's it — cookies are managed automatically via Puppeteer login.
+
+### 3. Install & Build
 
 ```bash
-npm install
-node test.js    # verify everything works
+pnpm install
+pnpm run build
 ```
+
+### 4. Test
+
+```bash
+pnpm test
+```
+
+This will: connect to Telegram, auto-login to GBar, fetch bookings for the next 7 days, and print results.
 
 ### 5. Run
 
 ```bash
 # Foreground
-npm start
+pnpm start
 
 # With PM2 (recommended for VPS)
 npm install -g pm2
-pm2 start index.js --name gbar-notifier
+pm2 start dist/index.js --name gbar-notifier
 pm2 save
 pm2 startup     # auto-start on reboot
 ```
 
-## Cookie Refresh
+## VPS / Linux deployment
 
-Session cookies expire periodically. When they do:
-- You'll get a Telegram alert: "Сесія закінчилась!"
-- Repeat step 2 above and update `.env`
-- Restart: `pm2 restart gbar-notifier`
+Puppeteer needs a Chromium binary. On Ubuntu/Debian:
+
+```bash
+apt install chromium-browser
+```
+
+Then set in `.env`:
+
+```
+PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
+```
 
 ## Configuration
 
 | Variable | Default | Description |
 |---|---|---|
-| GBAR_COOKIE_STRING | required | Session cookie from browser |
+| GBAR_LOGIN | — | GBar login (phone or email) |
+| GBAR_PASSWORD | — | GBar password |
+| GBAR_COOKIE_STRING | — | Manual cookie (alternative to login/password) |
 | TELEGRAM_BOT_TOKEN | required | Bot token from @BotFather |
 | TELEGRAM_CHAT_ID | required | Your Telegram user/chat ID |
 | POLL_INTERVAL_MINUTES | 5 | How often to check (minutes) |
 | DAYS_AHEAD | 7 | Days ahead to monitor |
 | GBAR_BASE_URL | https://pro.gbar.com.ua | Dashboard URL |
+| PUPPETEER_EXECUTABLE_PATH | — | Path to Chromium binary (for VPS) |
+
+## Tech stack
+
+Node.js, TypeScript, Puppeteer, axios, cheerio, node-cron

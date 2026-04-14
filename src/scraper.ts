@@ -1,8 +1,13 @@
-const axios = require('axios');
-const cheerio = require('cheerio');
+import axios, { AxiosInstance } from 'axios';
+import * as cheerio from 'cheerio';
+import { Booking, BookingsByDate, ScraperConfig, ConnectionTestResult } from './types';
 
-class GBarScraper {
-  constructor(config) {
+export default class GBarScraper {
+  private baseUrl: string;
+  private cookieString: string;
+  private client: AxiosInstance;
+
+  constructor(config: ScraperConfig) {
     this.baseUrl = config.baseUrl || 'https://pro.gbar.com.ua';
     this.cookieString = config.cookieString;
 
@@ -19,34 +24,25 @@ class GBarScraper {
     });
   }
 
-  /**
-   * Fetch bookings for a specific date
-   * @param {string} date - Date in YYYY-MM-DD format
-   * @returns {Array} Array of booking objects
-   */
-  async fetchBookingsForDate(date) {
+  async fetchBookingsForDate(date: string): Promise<Booking[]> {
     try {
       const response = await this.client.get(`/issue/master?date=${date}`);
 
-      // Check if we got redirected to login
       if (response.data.includes('/login') || response.data.includes('Увійти') || response.request?.path?.includes('login')) {
         throw new Error('SESSION_EXPIRED: Cookie is no longer valid. Please update GBAR_COOKIE_STRING in .env');
       }
 
       return this.parseBookings(response.data, date);
     } catch (error) {
-      if (error.message.startsWith('SESSION_EXPIRED')) throw error;
-      console.error(`Error fetching bookings for ${date}:`, error.message);
+      if (error instanceof Error && error.message.startsWith('SESSION_EXPIRED')) throw error;
+      console.error(`Error fetching bookings for ${date}:`, error instanceof Error ? error.message : error);
       throw error;
     }
   }
 
-  /**
-   * Parse HTML and extract booking data
-   */
-  parseBookings(html, date) {
+  parseBookings(html: string, date: string): Booking[] {
     const $ = cheerio.load(html);
-    const bookings = [];
+    const bookings: Booking[] = [];
 
     $('table tbody tr').each((_, row) => {
       const $row = $(row);
@@ -54,20 +50,16 @@ class GBarScraper {
 
       if (cells.length < 3) return;
 
-      // Extract booking ID from the link
       const idLink = $row.find('a').first();
       const id = idLink.text().trim();
 
-      if (!id || isNaN(id)) return;
+      if (!id || isNaN(Number(id))) return;
 
-      // Extract date and time
       const dateTimeCell = $(cells[1]);
-      const dateText = dateTimeCell.contents().first().text().trim();
-      const timeText = dateTimeCell.find('br').length > 0
-        ? dateTimeCell.html().split('<br>').pop().replace(/<[^>]+>/g, '').trim()
-        : dateTimeCell.text().replace(dateText, '').trim();
+      const cellText = dateTimeCell.text().replace(/\s+/g, ' ').trim();
+      const dateText = dateTimeCell.contents().first().text().replace(/\s+/g, ' ').trim();
+      const timeText = cellText.replace(dateText, '').trim();
 
-      // Extract client name
       const clientName = $(cells[2]).text().trim();
 
       if (id && clientName) {
@@ -84,13 +76,8 @@ class GBarScraper {
     return bookings;
   }
 
-  /**
-   * Fetch bookings for multiple days ahead
-   * @param {number} daysAhead - Number of days to check
-   * @returns {Object} Map of date -> bookings array
-   */
-  async fetchUpcomingBookings(daysAhead = 7) {
-    const allBookings = {};
+  async fetchUpcomingBookings(daysAhead: number = 7): Promise<BookingsByDate> {
+    const allBookings: BookingsByDate = {};
     const today = new Date();
 
     for (let i = 0; i <= daysAhead; i++) {
@@ -102,24 +89,25 @@ class GBarScraper {
         const bookings = await this.fetchBookingsForDate(dateStr);
         allBookings[dateStr] = bookings;
 
-        // Small delay between requests to be polite
         if (i < daysAhead) {
           await new Promise(r => setTimeout(r, 500));
         }
       } catch (error) {
-        if (error.message.startsWith('SESSION_EXPIRED')) throw error;
+        if (error instanceof Error && error.message.startsWith('SESSION_EXPIRED')) throw error;
         console.error(`Failed to fetch ${dateStr}, skipping...`);
-        allBookings[dateStr] = null; // null means error, [] means no bookings
+        allBookings[dateStr] = null;
       }
     }
 
     return allBookings;
   }
 
-  /**
-   * Test the connection
-   */
-  async testConnection() {
+  updateCookies(newCookieString: string): void {
+    this.cookieString = newCookieString;
+    this.client.defaults.headers['Cookie'] = newCookieString;
+  }
+
+  async testConnection(): Promise<ConnectionTestResult> {
     try {
       const today = new Date().toISOString().split('T')[0];
       const response = await this.client.get(`/issue/master?date=${today}`);
@@ -128,19 +116,16 @@ class GBarScraper {
         return { success: false, error: 'Session expired - need new cookies' };
       }
 
-      // Try to find the user name
       const $ = cheerio.load(response.data);
-      const userName = $('body').attr('class') || '';
+      const bodyClass = $('body').attr('class') || '';
 
       return {
         success: true,
         message: `Connected successfully. Page title: ${$('title').text()}`,
-        bodyClass: userName,
+        bodyClass,
       };
     } catch (error) {
-      return { success: false, error: error.message };
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
     }
   }
 }
-
-module.exports = GBarScraper;

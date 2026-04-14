@@ -5,10 +5,10 @@
  * to automate login. You'll need to install puppeteer:
  * npm install puppeteer
  *
- * Usage: node get-cookies.js <email> <password>
+ * Usage: node dist/get-cookies.js <email> <password>
  */
 
-async function getCookies() {
+async function getCookies(): Promise<void> {
   console.log(`
 === How to get your GBar session cookie ===
 
@@ -45,22 +45,22 @@ METHOD 3: Automated with Puppeteer (for auto-refresh)
 
 If cookies expire frequently, uncomment the code below and run:
   npm install puppeteer
-  node get-cookies.js your@email.com yourpassword
+  node dist/get-cookies.js your@email.com yourpassword
 `);
 
   // Uncomment below for automated cookie extraction:
   /*
-  const puppeteer = require('puppeteer');
+  const puppeteer = await import('puppeteer');
 
   const email = process.argv[2];
   const password = process.argv[3];
 
   if (!email || !password) {
-    console.error('Usage: node get-cookies.js <email> <password>');
+    console.error('Usage: node dist/get-cookies.js <email> <password>');
     process.exit(1);
   }
 
-  const browser = await puppeteer.launch({ headless: 'new' });
+  const browser = await puppeteer.default.launch({ headless: 'new' });
   const page = await browser.newPage();
 
   // Navigate to login
