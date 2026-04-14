@@ -162,8 +162,8 @@ async function poll(isRetry: boolean = false): Promise<void> {
   }
 }
 
-async function morningSummary(): Promise<void> {
-  console.log('Sending morning summary...');
+async function eveningSummary(): Promise<void> {
+  console.log('Sending evening summary...');
   try {
     const currentBookings = await scraper.fetchUpcomingBookings(config.daysAhead);
     await bot.notifyDailySummary(currentBookings);
@@ -174,7 +174,7 @@ async function morningSummary(): Promise<void> {
     if (message.startsWith('SESSION_EXPIRED')) {
       const refreshed = await refreshCookies();
       if (refreshed) {
-        console.log('Retrying morning summary with fresh cookies...');
+        console.log('Retrying evening summary with fresh cookies...');
         const currentBookings = await scraper.fetchUpcomingBookings(config.daysAhead);
         await bot.notifyDailySummary(currentBookings);
         store.update(currentBookings);
@@ -182,7 +182,7 @@ async function morningSummary(): Promise<void> {
         return;
       }
     }
-    console.error('Error sending morning summary:', message);
+    console.error('Error sending evening summary:', message);
   }
 }
 
@@ -232,10 +232,10 @@ async function start(): Promise<void> {
   cron.schedule(cronExpr, () => poll());
   console.log(`Scheduled polling: ${cronExpr}`);
 
-  cron.schedule('0 7 * * *', morningSummary, {
+  cron.schedule('0 20 * * *', eveningSummary, {
     timezone: 'Europe/Kyiv'
   });
-  console.log('Scheduled morning summary: 7:00 AM Kyiv time');
+  console.log('Scheduled evening summary: 8:00 PM Kyiv time');
 
   console.log('\nNotifier is running! Press Ctrl+C to stop.\n');
 }
