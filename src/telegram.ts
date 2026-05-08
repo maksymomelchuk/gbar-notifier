@@ -12,10 +12,10 @@ export default class TelegramBot {
     this.apiUrl = `https://api.telegram.org/bot${token}`;
   }
 
-  async sendMessage(text: string, parseMode: string = 'HTML'): Promise<void> {
+  async sendMessage(text: string, parseMode: string = 'HTML', chatId?: string): Promise<void> {
     try {
       await axios.post(`${this.apiUrl}/sendMessage`, {
-        chat_id: this.chatId,
+        chat_id: chatId ?? this.chatId,
         text,
         parse_mode: parseMode,
         disable_web_page_preview: true,
@@ -75,12 +75,12 @@ export default class TelegramBot {
     await this.sendMessage(header + '\n' + lines.join('\n\n'));
   }
 
-  async notifyDailySummary(dateBookings: BookingsByDate): Promise<void> {
+  async notifyDailySummary(dateBookings: BookingsByDate, chatId?: string): Promise<void> {
     const entries = Object.entries(dateBookings)
       .filter((entry): entry is [string, Booking[]] => entry[1] !== null && entry[1].length > 0);
 
     if (entries.length === 0) {
-      await this.sendMessage('📋 <b>Розклад:</b> Немає записів на найближчі дні');
+      await this.sendMessage('📋 <b>Розклад:</b> Немає записів на найближчі дні', 'HTML', chatId);
       return;
     }
 
@@ -95,7 +95,7 @@ export default class TelegramBot {
       message += '\n';
     }
 
-    await this.sendMessage(message);
+    await this.sendMessage(message, 'HTML', chatId);
   }
 
   async notifySessionExpired(): Promise<void> {

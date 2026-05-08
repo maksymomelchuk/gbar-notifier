@@ -35,6 +35,7 @@ export interface AppConfig {
   baseUrl: string;
   telegramToken: string;
   telegramChatId: string;
+  testTelegramChatId?: string;
   pollIntervalMinutes: number;
   daysAhead: number;
   gbarLogin?: string;

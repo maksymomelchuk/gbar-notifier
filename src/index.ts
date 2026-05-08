@@ -7,13 +7,14 @@ import GBarScraper from './scraper';
 import TelegramBot from './telegram';
 import BookingStore from './store';
 import { loginAndGetCookies } from './auth';
-import { AppConfig } from './types';
+import { AppConfig, BookingsByDate } from './types';
 
 const rawConfig = {
   cookieString: process.env.GBAR_COOKIE_STRING || '',
   baseUrl: process.env.GBAR_BASE_URL || 'https://pro.gbar.com.ua',
   telegramToken: process.env.TELEGRAM_BOT_TOKEN,
   telegramChatId: process.env.TELEGRAM_CHAT_ID,
+  testTelegramChatId: process.env.TEST_TELEGRAM_CHAT_ID || undefined,
   pollIntervalMinutes: parseInt(process.env.POLL_INTERVAL_MINUTES || '') || 5,
   daysAhead: parseInt(process.env.DAYS_AHEAD || '') || 7,
   gbarLogin: process.env.GBAR_LOGIN,
@@ -100,9 +101,13 @@ async function poll(isRetry: boolean = false): Promise<void> {
       store.update(currentBookings);
       isFirstRun = false;
 
-      console.log('First run - stored initial state. Sending summary...');
-      await bot.notifyDailySummary(currentBookings);
-      console.log('Summary sent!');
+      if (config.testTelegramChatId) {
+        console.log('First run - stored initial state. Sending smoke-test summary to TEST_TELEGRAM_CHAT_ID...');
+        await bot.notifyDailySummary(currentBookings, config.testTelegramChatId);
+        console.log('Smoke-test summary sent!');
+      } else {
+        console.log('First run - stored initial state. (TEST_TELEGRAM_CHAT_ID not set, skipping smoke-test summary)');
+      }
       return;
     }
 
@@ -162,13 +167,19 @@ async function poll(isRetry: boolean = false): Promise<void> {
   }
 }
 
+function withoutToday(bookings: BookingsByDate): BookingsByDate {
+  const today = new Date().toISOString().split('T')[0];
+  const { [today]: _omit, ...rest } = bookings;
+  return rest;
+}
+
 async function eveningSummary(): Promise<void> {
   console.log('Sending evening summary...');
   try {
     const currentBookings = await scraper.fetchUpcomingBookings(config.daysAhead);
-    await bot.notifyDailySummary(currentBookings);
+    await bot.notifyDailySummary(withoutToday(currentBookings));
     store.update(currentBookings);
-    console.log('Morning summary sent!');
+    console.log('Evening summary sent!');
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (message.startsWith('SESSION_EXPIRED')) {
@@ -176,9 +187,9 @@ async function eveningSummary(): Promise<void> {
       if (refreshed) {
         console.log('Retrying evening summary with fresh cookies...');
         const currentBookings = await scraper.fetchUpcomingBookings(config.daysAhead);
-        await bot.notifyDailySummary(currentBookings);
+        await bot.notifyDailySummary(withoutToday(currentBookings));
         store.update(currentBookings);
-        console.log('Morning summary sent!');
+        console.log('Evening summary sent!');
         return;
       }
     }

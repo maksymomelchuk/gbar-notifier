@@ -11,12 +11,12 @@ async function test(): Promise<void> {
 
   // 1. Test Telegram
   console.log("1. Testing Telegram Bot...");
-  if (!process.env.TELEGRAM_BOT_TOKEN || !process.env.TELEGRAM_CHAT_ID) {
-    console.log("   SKIP: TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID not set");
+  if (!process.env.TELEGRAM_BOT_TOKEN || !process.env.TEST_TELEGRAM_CHAT_ID) {
+    console.log("   SKIP: TELEGRAM_BOT_TOKEN or TEST_TELEGRAM_CHAT_ID not set");
   } else {
     const bot = new TelegramBot(
       process.env.TELEGRAM_BOT_TOKEN,
-      process.env.TELEGRAM_CHAT_ID
+      process.env.TEST_TELEGRAM_CHAT_ID
     );
     const result = await bot.testConnection();
     if (result.success) {
@@ -26,7 +26,7 @@ async function test(): Promise<void> {
         await bot.sendMessage(
           "🔔 <b>Тестове повідомлення</b>\n\nGBar Notifier працює!"
         );
-        console.log("   OK: Test message sent to Telegram");
+        console.log("   OK: Test message sent to Telegram (test chat)");
       } catch (e) {
         console.log(
           `   WARN: Bot works but cant send message: ${
@@ -34,7 +34,7 @@ async function test(): Promise<void> {
           }`
         );
         console.log(
-          "   Make sure you sent a message to the bot first, and TELEGRAM_CHAT_ID is correct"
+          "   Make sure you sent a message to the bot first, and TEST_TELEGRAM_CHAT_ID is correct"
         );
       }
     } else {
