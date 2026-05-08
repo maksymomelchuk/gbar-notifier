@@ -5,40 +5,27 @@ dotenv.config({ path: path.resolve(__dirname, "..", ".env") });
 import GBarScraper from "./scraper";
 import TelegramBot from "./telegram";
 import { loginAndGetCookies } from "./auth";
+import { BookingsByDate } from "./types";
 
 async function test(): Promise<void> {
   console.log("=== GBar Notifier - Connection Test ===\n");
 
-  // 1. Test Telegram
+  // 1. Test Telegram (connection only — actual message goes out at step 6 with real fetched data)
   console.log("1. Testing Telegram Bot...");
+  let bot: TelegramBot | null = null;
   if (!process.env.TELEGRAM_BOT_TOKEN || !process.env.TEST_TELEGRAM_CHAT_ID) {
     console.log("   SKIP: TELEGRAM_BOT_TOKEN or TEST_TELEGRAM_CHAT_ID not set");
   } else {
-    const bot = new TelegramBot(
+    bot = new TelegramBot(
       process.env.TELEGRAM_BOT_TOKEN,
       process.env.TEST_TELEGRAM_CHAT_ID
     );
     const result = await bot.testConnection();
     if (result.success) {
       console.log(`   OK: Bot @${result.username} (${result.botName})`);
-
-      try {
-        await bot.sendMessage(
-          "🔔 <b>Тестове повідомлення</b>\n\nGBar Notifier працює!"
-        );
-        console.log("   OK: Test message sent to Telegram (test chat)");
-      } catch (e) {
-        console.log(
-          `   WARN: Bot works but cant send message: ${
-            e instanceof Error ? e.message : e
-          }`
-        );
-        console.log(
-          "   Make sure you sent a message to the bot first, and TEST_TELEGRAM_CHAT_ID is correct"
-        );
-      }
     } else {
       console.log(`   FAIL: ${JSON.stringify(result.error)}`);
+      bot = null;
     }
   }
 
@@ -98,8 +85,9 @@ async function test(): Promise<void> {
 
   // 5. Fetch next 7 days
   console.log("\n5. Fetching next 7 days...");
+  let allBookings: BookingsByDate | null = null;
   try {
-    const allBookings = await scraper.fetchUpcomingBookings(7);
+    allBookings = await scraper.fetchUpcomingBookings(7);
     for (const [date, bookings] of Object.entries(allBookings)) {
       if (bookings && bookings.length > 0) {
         console.log(`   ${date}: ${bookings.length} booking(s)`);
@@ -112,6 +100,17 @@ async function test(): Promise<void> {
     }
   } catch (e) {
     console.log(`   FAIL: ${e instanceof Error ? e.message : e}`);
+  }
+
+  // 6. Send fetched bookings to test chat
+  if (bot && allBookings) {
+    console.log("\n6. Sending fetched bookings summary to test chat...");
+    try {
+      await bot.notifyDailySummary(allBookings);
+      console.log("   OK: Summary sent to test chat");
+    } catch (e) {
+      console.log(`   FAIL: ${e instanceof Error ? e.message : e}`);
+    }
   }
 
   console.log("\n=== Test Complete ===");
