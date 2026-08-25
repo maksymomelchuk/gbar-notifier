@@ -57,7 +57,8 @@ export default class GBarScraper {
 
       const dateTimeCell = $(cells[1]);
       const cellText = dateTimeCell.text().replace(/\s+/g, ' ').trim();
-      const dateText = dateTimeCell.contents().first().text().replace(/\s+/g, ' ').trim();
+      const isoDate = cellText.match(/^\d{4}-\d{2}-\d{2}/)?.[0];
+      const dateText = isoDate ?? dateTimeCell.contents().first().text().replace(/\s+/g, ' ').trim();
       const timeText = cellText.replace(dateText, '').trim();
 
       const clientName = $(cells[2]).text().trim();

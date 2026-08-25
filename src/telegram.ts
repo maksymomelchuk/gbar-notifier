@@ -77,7 +77,8 @@ export default class TelegramBot {
 
   async notifyDailySummary(dateBookings: BookingsByDate, chatId?: string): Promise<void> {
     const entries = Object.entries(dateBookings)
-      .filter((entry): entry is [string, Booking[]] => entry[1] !== null && entry[1].length > 0);
+      .filter((entry): entry is [string, Booking[]] => entry[1] !== null && entry[1].length > 0)
+      .sort(([a], [b]) => a.localeCompare(b));
 
     if (entries.length === 0) {
       await this.sendMessage('📋 <b>Розклад:</b> Немає записів на найближчі дні', 'HTML', chatId);
@@ -89,7 +90,9 @@ export default class TelegramBot {
     for (const [date, bookings] of entries) {
       message += `📅 <b>${this.formatDateFull(date)}</b>\n`;
 
-      for (const b of bookings) {
+      const sorted = [...bookings].sort((a, b) => this.startMinutes(a.time) - this.startMinutes(b.time));
+
+      for (const b of sorted) {
         message += `  ⏰ ${b.time} — ${b.client}\n`;
       }
       message += '\n';
@@ -120,6 +123,11 @@ export default class TelegramBot {
       }
       return { success: false, error: String(error) };
     }
+  }
+
+  private startMinutes(time: string): number {
+    const m = time.match(/(\d{1,2}):(\d{2})/);
+    return m ? Number(m[1]) * 60 + Number(m[2]) : Number.MAX_SAFE_INTEGER;
   }
 
   private formatDateFull(dateStr: string): string {
