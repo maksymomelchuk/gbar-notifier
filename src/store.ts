@@ -4,6 +4,10 @@ import { Booking, BookingsByDate, BookingMap, BookingChange, DiffResult } from '
 
 export default class BookingStore {
   private filePath: string;
+  // Dates fetched successfully at least once in this process. Bookings on any other
+  // date (e.g. the day that just entered the look-ahead window) aren't new — that
+  // date simply hasn't been looked at before.
+  private watchedDates = new Set<string>();
 
   constructor(filePath: string = path.join(__dirname, '..', 'data', 'bookings.json')) {
     this.filePath = filePath;
@@ -53,7 +57,9 @@ export default class BookingStore {
 
     for (const [id, current] of Object.entries(currentMap)) {
       if (!stored[id]) {
-        newBookings.push(current);
+        if (this.watchedDates.has(current.rawDate)) {
+          newBookings.push(current);
+        }
       } else {
         const old = stored[id];
         if (old.time !== current.time || old.date !== current.date || old.client !== current.client) {
@@ -103,6 +109,15 @@ export default class BookingStore {
     for (const id of Object.keys(stored)) {
       if (stored[id].rawDate < today) {
         delete stored[id];
+      }
+    }
+
+    for (const date of fetchedDates) {
+      this.watchedDates.add(date);
+    }
+    for (const date of this.watchedDates) {
+      if (date < today) {
+        this.watchedDates.delete(date);
       }
     }
 
