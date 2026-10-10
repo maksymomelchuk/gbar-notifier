@@ -48,42 +48,76 @@ const scraper = new GBarScraper(config);
 const bot = new TelegramBot(config.telegramToken, config.telegramChatId);
 const store = new BookingStore();
 
+const LOGIN_RETRY_BASE_MS = 5 * 60 * 1000;
+const LOGIN_RETRY_MAX_MS = 60 * 60 * 1000;
+
 let isFirstRun = true;
 let sessionExpiredNotified = false;
 let consecutiveErrors = 0;
-let isRefreshing = false;
+let refreshInFlight: Promise<boolean> | null = null;
 
-async function refreshCookies(): Promise<boolean> {
+// Every GBar login attempt pings the account owner via GBar's own Telegram bot,
+// so failed logins back off, and a rejected password is never retried until restart.
+let loginFailures = 0;
+let nextLoginAttemptAt = 0;
+let credentialsRejected = false;
+
+function refreshCookies(): Promise<boolean> {
+  refreshInFlight ??= attemptLogin().finally(() => {
+    refreshInFlight = null;
+  });
+  return refreshInFlight;
+}
+
+async function attemptLogin(): Promise<boolean> {
   if (!config.gbarLogin || !config.gbarPassword) {
     console.log('No GBAR_LOGIN/GBAR_PASSWORD configured — cannot auto-refresh');
     return false;
   }
 
-  if (isRefreshing) {
-    console.log('Cookie refresh already in progress, waiting...');
-    while (isRefreshing) await new Promise(r => setTimeout(r, 500));
-    return !!config.cookieString;
+  if (credentialsRejected) {
+    console.log('GBar rejected the credentials — not retrying until restart');
+    return false;
   }
 
-  isRefreshing = true;
-  try {
-    console.log('Attempting automatic cookie refresh...');
-    const result = await loginAndGetCookies(
-      { login: config.gbarLogin, password: config.gbarPassword },
-      config.baseUrl
-    );
+  if (Date.now() < nextLoginAttemptAt) {
+    console.log(`Login backoff — next attempt after ${new Date(nextLoginAttemptAt).toLocaleString('uk-UA')}`);
+    return false;
+  }
 
-    if (result.success && result.cookieString) {
-      scraper.updateCookies(result.cookieString);
-      config.cookieString = result.cookieString;
-      console.log('Cookie refresh successful');
-      return true;
-    } else {
-      console.error('Cookie refresh failed:', result.error);
-      return false;
-    }
-  } finally {
-    isRefreshing = false;
+  console.log('Attempting automatic cookie refresh...');
+  const result = await loginAndGetCookies(
+    { login: config.gbarLogin, password: config.gbarPassword },
+    config.baseUrl
+  );
+
+  if (result.success && result.cookieString) {
+    scraper.updateCookies(result.cookieString);
+    config.cookieString = result.cookieString;
+    loginFailures = 0;
+    nextLoginAttemptAt = 0;
+    console.log('Cookie refresh successful');
+    return true;
+  }
+
+  loginFailures++;
+  if (result.credentialsRejected) {
+    credentialsRejected = true;
+  } else {
+    const delay = Math.min(LOGIN_RETRY_BASE_MS * 2 ** (loginFailures - 1), LOGIN_RETRY_MAX_MS);
+    nextLoginAttemptAt = Date.now() + delay;
+  }
+  console.error('Cookie refresh failed:', result.error);
+  return false;
+}
+
+async function trySend(label: string, send: () => Promise<void>): Promise<boolean> {
+  try {
+    await send();
+    return true;
+  } catch {
+    console.error(`Failed to send ${label}`);
+    return false;
   }
 }
 
@@ -113,26 +147,28 @@ async function poll(isRetry: boolean = false): Promise<void> {
 
     const { newBookings, cancelledBookings, changedBookings } = store.diff(currentBookings);
 
+    // Save before notifying: if a send fails, the changes that were already sent
+    // must not be detected (and re-sent) again on every following poll.
+    store.update(currentBookings);
+
     if (newBookings.length > 0) {
       console.log(`Found ${newBookings.length} new booking(s)`);
-      await bot.notifyNewBookings(newBookings);
+      await trySend('new bookings', () => bot.notifyNewBookings(newBookings));
     }
 
     if (cancelledBookings.length > 0) {
       console.log(`Found ${cancelledBookings.length} cancelled booking(s)`);
-      await bot.notifyCancelledBookings(cancelledBookings);
+      await trySend('cancelled bookings', () => bot.notifyCancelledBookings(cancelledBookings));
     }
 
     if (changedBookings.length > 0) {
       console.log(`Found ${changedBookings.length} changed booking(s)`);
-      await bot.notifyChangedBookings(changedBookings);
+      await trySend('changed bookings', () => bot.notifyChangedBookings(changedBookings));
     }
 
     if (!newBookings.length && !cancelledBookings.length && !changedBookings.length) {
       console.log('No changes detected');
     }
-
-    store.update(currentBookings);
 
   } catch (error) {
     consecutiveErrors++;
@@ -149,20 +185,21 @@ async function poll(isRetry: boolean = false): Promise<void> {
       }
 
       if (!sessionExpiredNotified) {
-        await bot.notifySessionExpired();
-        sessionExpiredNotified = true;
+        sessionExpiredNotified = await trySend('session-expired alert', () =>
+          bot.notifySessionExpired(config.testTelegramChatId)
+        );
       }
       return;
     }
 
     if (consecutiveErrors >= 5 && consecutiveErrors % 5 === 0) {
-      try {
-        await bot.sendMessage(
-          `⚠️ <b>Помилка скрапера</b>\n\n${consecutiveErrors} помилок поспіль.\nОстання: ${message}`
-        );
-      } catch {
-        // ignore telegram errors here
-      }
+      await trySend('scraper error alert', () =>
+        bot.sendMessage(
+          `⚠️ <b>Помилка скрапера</b>\n\n${consecutiveErrors} помилок поспіль.\nОстання: ${message}`,
+          'HTML',
+          config.testTelegramChatId
+        )
+      );
     }
   }
 }
@@ -205,22 +242,21 @@ async function start(): Promise<void> {
   console.log(`Auto-login: ${config.gbarLogin ? 'enabled' : 'disabled'}`);
   console.log('');
 
+  // Startup checks only log failures. Exiting would make PM2 restart the process
+  // immediately, and every restart is another GBar login attempt.
   console.log('Testing Telegram bot...');
   const telegramTest = await bot.testConnection();
   if (telegramTest.success) {
     console.log(`Telegram bot OK: @${telegramTest.username}`);
   } else {
     console.error('Telegram bot FAILED:', telegramTest.error);
-    process.exit(1);
   }
 
-  // If no cookie string, do initial login
   if (!config.cookieString && config.gbarLogin && config.gbarPassword) {
     console.log('No cookie string provided, logging in with credentials...');
     const loginOk = await refreshCookies();
     if (!loginOk) {
-      console.error('Initial login failed. Cannot proceed.');
-      process.exit(1);
+      console.error('Initial login failed — will retry on the polling schedule');
     }
   }
 
@@ -231,7 +267,6 @@ async function start(): Promise<void> {
   } else {
     console.error('GBar connection FAILED:', gbarTest.error);
     console.error('Check your GBAR_COOKIE_STRING or GBAR_LOGIN/GBAR_PASSWORD in .env');
-    process.exit(1);
   }
 
   console.log('');

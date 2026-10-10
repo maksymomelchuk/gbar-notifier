@@ -9,6 +9,7 @@ export interface AuthResult {
   success: boolean;
   cookieString?: string;
   error?: string;
+  credentialsRejected?: boolean;
 }
 
 export async function loginAndGetCookies(
@@ -58,7 +59,7 @@ export async function loginAndGetCookies(
     // Check if login failed (still on auth/login page)
     const currentUrl = page.url();
     if (currentUrl.includes('/login')) {
-      return { success: false, error: 'Login failed — check GBAR_LOGIN and GBAR_PASSWORD' };
+      return { success: false, credentialsRejected: true, error: 'Login failed — check GBAR_LOGIN and GBAR_PASSWORD' };
     }
 
     // After login, navigate to the bookings page to ensure session is established
@@ -87,7 +88,7 @@ export async function loginAndGetCookies(
     return { success: false, error: `Auth error: ${message}` };
   } finally {
     if (browser) {
-      await browser.close();
+      await browser.close().catch(() => {});
     }
   }
 }

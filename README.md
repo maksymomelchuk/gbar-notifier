@@ -62,10 +62,13 @@ pnpm start
 
 # With PM2 (recommended for VPS)
 npm install -g pm2
-pm2 start dist/index.js --name gbar-notifier
+pm2 start ecosystem.config.js
 pm2 save
 pm2 startup     # auto-start on reboot
+pm2 install pm2-logrotate
 ```
+
+`ecosystem.config.js` stops restarting the app after 10 quick crashes, since every startup may log in to GBar.
 
 ## VPS / Linux deployment
 

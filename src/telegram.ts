@@ -101,11 +101,13 @@ export default class TelegramBot {
     await this.sendMessage(message, 'HTML', chatId);
   }
 
-  async notifySessionExpired(): Promise<void> {
+  async notifySessionExpired(chatId?: string): Promise<void> {
     await this.sendMessage(
-      '⚠️ <b>Сесія закінчилась!</b>\n\n' +
-      'Потрібно оновити cookie в .env файлі.\n' +
-      'Відкрий панель GBar в браузері та скопіюй нові cookie.'
+      '⚠️ <b>Не вдалося увійти в GBar!</b>\n\n' +
+      'Сесія закінчилась, а автоматичний вхід не спрацював.\n' +
+      'Якщо змінився пароль — онови GBAR_PASSWORD у .env на сервері та виконай <code>pm2 restart gbar-notifier</code>.',
+      'HTML',
+      chatId
     );
   }
 
